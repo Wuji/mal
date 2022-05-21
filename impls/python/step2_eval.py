@@ -1,60 +1,76 @@
-import sys, traceback
-import mal_readline
-import mal_types as types
-import reader, printer
+import reader
+import printer
+import mal_types
 
-# read
-def READ(str):
-    return reader.read_str(str)
+PROMPT = "user> "
 
-# eval
-def eval_ast(ast, env):
-    if types._symbol_Q(ast):
-        try:
-            return env[ast]
-        except:
-            raise Exception("'" + ast + "' not found")
-    elif types._list_Q(ast):
-        return types._list(*map(lambda a: EVAL(a, env), ast))
-    elif types._vector_Q(ast):
-        return types._vector(*map(lambda a: EVAL(a, env), ast))
-    elif types._hash_map_Q(ast):
-        return types.Hash_Map((k, EVAL(v, env)) for k, v in ast.items())
-    else:
-        return ast  # primitive value, return unchanged
+repl_env = {'+': lambda a,b: (mal_types.get_mal_type("number"), a[1]+b[1]),
+            '-': lambda a,b: (mal_types.get_mal_type("number"), a[1]-b[1]),
+            '*': lambda a,b: (mal_types.get_mal_type("number"), a[1]*b[1]),
+            '/': lambda a,b: (mal_types.get_mal_type("number"), int(a[1]/b[1]))}
 
-def EVAL(ast, env):
-        #print("EVAL %s" % printer._pr_str(ast))
-        if not types._list_Q(ast):
-            return eval_ast(ast, env)
+def eval_ast(ast, repl_env):
 
-        # apply list
-        if len(ast) == 0: return ast
-        el = eval_ast(ast, env)
-        f = el[0]
-        return f(*el[1:])
+    mal_type = ast[0]
 
-# print
-def PRINT(exp):
-    return printer._pr_str(exp)
+    match mal_type:
+        case "MAL_LIST":
+            print("evaluating list")
+            return [EVAL(x, repl_env) for x in ast[1]]
 
-# repl
-repl_env = {} 
-def REP(str):
-    return PRINT(EVAL(READ(str), repl_env))
+        case "MAL_VECTOR":
+            print("evaluating vector")
+            if len(ast[1]):
+                return ("MAL_VECTOR", [EVAL(x, repl_env) for x in ast[1]])
+            else:
+                return ast
 
-repl_env['+'] = lambda a,b: a+b
-repl_env['-'] = lambda a,b: a-b
-repl_env['*'] = lambda a,b: a*b
-repl_env['/'] = lambda a,b: int(a/b)
+        case "MAL_HASH_MAP":
+            print("evaluating hash-map")
+            if len(ast[1]):
+                return ("MAL_HASH_MAP", [EVAL(ast[1][x], repl_env) if x % 2 == 1 else ast[1][x] for x in range(len(ast[1]))])
+            else:
+                return ast
+        case "MAL_SYMBOL":
+            symbol = ast[1][0]
+            if symbol in repl_env:
+                return repl_env[symbol]
+            else:
+                return "unimplemented"
+        case _:
+            return ast
 
-# repl loop
+def READ(param: str):
+    return reader.read_str(param)
+
+def EVAL(ast, repl_env):
+    print("entering eval: " + str(ast))
+    mal_type = ast[0]
+
+    match mal_type:
+        case "MAL_LIST":
+            if ast[1]:
+                evaluated = eval_ast(ast, repl_env)
+                print("evaluated: "+str(evaluated))
+                if ast[1][0][1] in mal_types.get_mal_symbols():
+                    return evaluated[0](*evaluated[1:])
+                else:
+                    return evaluated
+            else:
+                return ast
+        case _:
+            return eval_ast(ast, repl_env)
+
+def PRINT(param):
+    #print("entering print: " + str(param))
+    print(printer.pr_str(param))
+
+def rep(param: str):
+    return PRINT(EVAL(READ(param), repl_env))
+
 while True:
     try:
-        line = mal_readline.readline("user> ")
-        if line == None: break
-        if line == "": continue
-        print(REP(line))
-    except reader.Blank: continue
-    except Exception as e:
-        print("".join(traceback.format_exception(*sys.exc_info())))
+        rep(input(PROMPT))
+
+    except EOFError as e:
+        exit(0)

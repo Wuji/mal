@@ -1,87 +1,157 @@
-import sys, traceback
-import mal_readline
-import mal_types as types
-import reader, printer
-from env import Env
+import reader
+import printer
 import core
+from mal_types import MAL_TYPES
+import env
 
-# read
-def READ(str):
-    return reader.read_str(str)
+PROMPT = "user> "
+MAL_NOT = "(def! not (fn* (a) (if a false true)))"
 
-# eval
-def eval_ast(ast, env):
-    if types._symbol_Q(ast):
-        return env.get(ast)
-    elif types._list_Q(ast):
-        return types._list(*map(lambda a: EVAL(a, env), ast))
-    elif types._vector_Q(ast):
-        return types._vector(*map(lambda a: EVAL(a, env), ast))
-    elif types._hash_map_Q(ast):
-        return types.Hash_Map((k, EVAL(v, env)) for k, v in ast.items())
-    else:
-        return ast  # primitive value, return unchanged
+def create_env():
 
-def EVAL(ast, env):
-        #print("EVAL %s" % printer._pr_str(ast))
-        if not types._list_Q(ast):
-            return eval_ast(ast, env)
+    repl_env = env.Env(None)
 
-        # apply list
-        if len(ast) == 0: return ast
-        a0 = ast[0]
+    for funct in core.ns:
+        repl_env.set(funct, core.ns[funct])
 
-        if "def!" == a0:
-            a1, a2 = ast[1], ast[2]
-            res = EVAL(a2, env)
-            return env.set(a1, res)
-        elif "let*" == a0:
-            a1, a2 = ast[1], ast[2]
-            let_env = Env(env)
-            for i in range(0, len(a1), 2):
-                let_env.set(a1[i], EVAL(a1[i+1], let_env))
-            return EVAL(a2, let_env)
-        elif "do" == a0:
-            el = eval_ast(ast[1:], env)
-            return el[-1]
-        elif "if" == a0:
-            a1, a2 = ast[1], ast[2]
-            cond = EVAL(a1, env)
-            if cond is None or cond is False:
-                if len(ast) > 3: return EVAL(ast[3], env)
-                else:            return None
+    return repl_env
+
+def eval_ast(ast, repl_env):
+    # print("evaluating "+ str(ast))
+    mal_type = ast[0]
+    mal_data = ast[1]
+
+    match mal_type:
+        case MAL_TYPES.MAL_LIST:
+            return [EVAL(x, repl_env) for x in mal_data]
+
+        case MAL_TYPES.MAL_VECTOR:
+            if len(ast[1]):
+                return (MAL_TYPES.MAL_VECTOR, [EVAL(x, repl_env) for x in ast[1]])
             else:
-                return EVAL(a2, env)
-        elif "fn*" == a0:
-            a1, a2 = ast[1], ast[2]
-            return types._function(EVAL, Env, a2, env, a1)
+                return ast
+
+        case MAL_TYPES.MAL_HASH_MAP:
+            if len(ast[1]):
+                return (MAL_TYPES.MAL_HASH_MAP, [EVAL(ast[1][x], repl_env) if x % 2 == 1 else ast[1][x] for x in range(len(ast[1]))])
+            else:
+                return ast
+
+        case MAL_TYPES.MAL_SYMBOL:
+            # symbol = mal_data
+            symbol_env = repl_env.find(ast)
+
+            if symbol_env:
+                symbol_def = symbol_env.get(ast)
+                return symbol_def
+            else:
+                raise Exception(str(ast)+" not found.")
+            # else:
+                # raise Exception("unimplemented symbol " + str(symbol))
+        case MAL_TYPES.MAL_FUNCTION:
+            print("function_eval ")
+            print(mal_type)
+            print(mal_data)
+        case _:
+            return ast
+
+def READ(param: str):
+    return reader.read_str(param)
+
+def EVAL(ast, repl_env):
+    mal_type = ast[0]
+    mal_expr = ast[1]
+
+    if mal_type == MAL_TYPES.MAL_LIST:
+        if not mal_expr:
+            return ast
+
+        first_element = mal_expr[0]
+        if first_element[0] == MAL_TYPES.MAL_SYMBOL:
+            match first_element[1]:
+                case "def!":
+                    new_symbol = mal_expr[1]
+                    symbol_def = mal_expr[2]
+                    evaluated_symbol_def = EVAL(symbol_def, repl_env)
+
+                    repl_env.set(new_symbol, evaluated_symbol_def)
+                    return evaluated_symbol_def
+                case "let*":
+                    # print('new stuff')
+                    new_env = env.Env(repl_env)
+
+                    binding_list = mal_expr[1]
+
+                    to_eval = mal_expr[2]
+                    if len(binding_list[1]) % 2 == 1:
+                        raise Exception("unbalanced binding list")
+
+                    list_iter = iter(binding_list[1])
+                    for b_symbol, b_def in zip(list_iter, list_iter):
+
+                        new_env.set(b_symbol, EVAL(b_def, new_env))
+                    # print('new env '+str(new_env.data))
+                    return EVAL(to_eval, new_env)
+                case "do":
+                    # Evaluate all the elements of the list using eval_ast and return the final evaluated element.
+                    evaluated = []
+                    for element in mal_expr[1:]:
+                        evaluated.append(EVAL(element, repl_env))
+                    # evaluated = [eval_ast(x, repl_env) for x in mal_expr[1:]]
+                    return evaluated[-1]
+                case "if":
+                    condition_result = EVAL(mal_expr[1], repl_env)
+                    is_nil = condition_result[0] == MAL_TYPES.MAL_NIL
+                    is_false = condition_result[0] == MAL_TYPES.MAL_BOOLEAN and condition_result[1] == "false"
+                    if not is_nil and not is_false:
+                        return EVAL(mal_expr[2], repl_env)
+                    if len(mal_expr) > 3:
+                        return EVAL(mal_expr[3], repl_env)
+                    else:
+                        return (MAL_TYPES.MAL_NIL, "nil")
+                case "fn*":
+                    # print("binds: "+str(mal_expr[1]))
+                    # print("exprs: "+str(mal_expr[2]))
+
+                    def closure(*args):
+                        new_env = env.Env(repl_env, mal_expr[1][1], args)
+
+                        return EVAL(mal_expr[2], new_env)
+        
+                    return (MAL_TYPES.MAL_FUNCTION, closure)
+                case _:
+                    pass
+                    # raise Exception("Error: unknown Symbol "+str(first_element[1]))
+        
+        evaluated = eval_ast(ast, repl_env)
+        
+        # print("evaluated list in EVAL: "+str(evaluated))
+
+        if evaluated[0][0] == MAL_TYPES.MAL_FUNCTION:
+            return evaluated[0][1](*evaluated[1:])
         else:
-            el = eval_ast(ast, env)
-            f = el[0]
-            return f(*el[1:])
+            return (MAL_TYPES.MAL_LIST, evaluated)
 
-# print
-def PRINT(exp):
-    return printer._pr_str(exp)
+    return eval_ast(ast, repl_env)
 
-# repl
-repl_env = Env()
-def REP(str):
-    return PRINT(EVAL(READ(str), repl_env))
+def PRINT(param):
+    #print("entering print: " + str(param))
+    print(printer.pr_str(param, True))
 
-# core.py: defined using python
-for k, v in core.ns.items(): repl_env.set(types._symbol(k), v)
+def rep(param: str, repl_env: env.Env):
 
-# core.mal: defined using the language itself
-REP("(def! not (fn* (a) (if a false true)))")
+    return PRINT(EVAL(READ(param), repl_env))
 
-# repl loop
+
+repl_env = create_env()
+
+rep(MAL_NOT, repl_env)
+
 while True:
     try:
-        line = mal_readline.readline("user> ")
-        if line == None: break
-        if line == "": continue
-        print(REP(line))
-    except reader.Blank: continue
+        rep(input(PROMPT), repl_env)
+
+    except EOFError as e:
+        exit(0)
     except Exception as e:
-        print("".join(traceback.format_exception(*sys.exc_info())))
+        print(e)

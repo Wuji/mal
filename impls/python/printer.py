@@ -1,34 +1,51 @@
-import mal_types as types
+from mal_types import MAL_TYPES
+import mal_types
+import itertools
 
-def _escape(s):
-    return s.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n')
+def pr_str(maltype, print_readably):
+    # print("entering pr_str with "+str(maltype))
+    typeof_maltype = maltype[0]
+    valueof_maltype = maltype[1]
+    # print(type(valueof_maltype))
+    match typeof_maltype:
+        case MAL_TYPES.MAL_BOOLEAN | MAL_TYPES.MAL_NIL:
+            return str(valueof_maltype)
+        case MAL_TYPES.MAL_STRING:
+            if not valueof_maltype:
+                return ""
+            
+            if print_readably:
+                return valueof_maltype
+            else:
+                value_string = valueof_maltype.strip('"')
+                return value_string
 
-def _pr_str(obj, print_readably=True):
-    _r = print_readably
-    if types._list_Q(obj):
-        return "(" + " ".join(map(lambda e: _pr_str(e,_r), obj)) + ")"
-    elif types._vector_Q(obj):                                    
-        return "[" + " ".join(map(lambda e: _pr_str(e,_r), obj)) + "]"
-    elif types._hash_map_Q(obj):
-        ret = []
-        for k in obj.keys():
-            ret.extend((_pr_str(k), _pr_str(obj[k],_r)))
-        return "{" + " ".join(ret) + "}"
-    elif type(obj) in types.str_types:
-        if len(obj) > 0 and obj[0] == types._u('\u029e'):
-            return ':' + obj[1:]
-        elif print_readably:
-            return '"' + _escape(obj) + '"'
-        else:
-            return obj
-    elif types._nil_Q(obj):
-        return "nil"
-    elif types._true_Q(obj):
-        return "true"
-    elif types._false_Q(obj):
-        return "false"
-    elif types._atom_Q(obj):
-        return "(atom " + _pr_str(obj.val,_r) + ")"
-    else:
-        return obj.__str__()
+        case MAL_TYPES.MAL_NUMBER:
+            return str(valueof_maltype)
+        case MAL_TYPES.MAL_LIST:
+            joined = ""
+            if valueof_maltype:
+                joined = " ".join(map(pr_str, valueof_maltype, itertools.repeat(print_readably)))
+            return "(" + joined + ")"
+        case MAL_TYPES.MAL_VECTOR:
+            joined = ""
+            if valueof_maltype:
+                joined = " ".join(map(pr_str, valueof_maltype, itertools.repeat(print_readably)))
+            return "[" + joined + "]"
+        case MAL_TYPES.MAL_HASH_MAP:
+            joined = ""
+            if valueof_maltype:
+                joined = " ".join(map(pr_str, valueof_maltype, itertools.repeat(print_readably)))
+            return "{" + joined + "}"
+        case MAL_TYPES.MAL_SYMBOL:
+            symbol = valueof_maltype
+            if symbol in mal_types.get_mal_special_symbols():
+                symbol_str = mal_types.get_mal_special_symbol(symbol)
+            else:
+                symbol_str = symbol
 
+            return symbol_str
+        case MAL_TYPES.MAL_FUNCTION:
+            return MAL_TYPES.MAL_FUNCTION.value
+        case _:
+            raise Exception("Error: Unsupported type: " + str(typeof_maltype))

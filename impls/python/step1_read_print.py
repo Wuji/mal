@@ -1,32 +1,25 @@
-import sys, traceback
-import mal_readline
-import mal_types as types
-import reader, printer
+import reader
+import printer
 
-# read
-def READ(str):
-    return reader.read_str(str)
+PROMPT = "user> "
 
-# eval
-def EVAL(ast, env):
-        #print("EVAL %s" % printer._pr_str(ast))
-        return ast
+def READ(param: str):
+    return reader.read_str(param)
 
-# print
-def PRINT(exp):
-    return printer._pr_str(exp)
+def EVAL(param):
+    #print("entering eval: " + str(param))
+    return param
 
-# repl
-def REP(str):
-    return PRINT(EVAL(READ(str), {}))
+def PRINT(param):
+    #print("entering print: " + str(param))
+    print(printer.pr_str(param))
 
-# repl loop
+def rep(param: str):
+    return PRINT(EVAL(READ(param)))
+
 while True:
     try:
-        line = mal_readline.readline("user> ")
-        if line == None: break
-        if line == "": continue
-        print(REP(line))
-    except reader.Blank: continue
-    except Exception as e:
-        print("".join(traceback.format_exception(*sys.exc_info())))
+        rep(input(PROMPT))
+
+    except EOFError as e:
+        exit(0)
